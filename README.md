@@ -1001,3 +1001,29 @@ The long-term vision is to evolve SnapLecture from a simple video-to-PDF utility
 <p align="center">
   More features, optimizations, and production improvements are coming.
 </p>
+
+---
+
+## Development Update
+
+SnapLecture MVP development is actively progressing.
+
+### Current Implementation
+
+- FastAPI backend foundation
+- Video input validation
+- Frame extraction service
+- PDF generation service
+- Video-to-PDF processing pipeline
+- PDF generation API
+- Next.js frontend interface
+- Configurable frame capture intervals
+- Temporary processing architecture
+- Privacy-focused no-permanent-storage design
+
+### Current Status
+
+**?? MVP UNDER ACTIVE DEVELOPMENT**
+
+The next development stage focuses on production hardening, temporary-file lifecycle cleanup, request limits, analytics, testing, Docker configuration, and deployment preparation.
+
