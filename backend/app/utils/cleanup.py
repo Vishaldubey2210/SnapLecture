@@ -1,22 +1,21 @@
-import shutil
 from pathlib import Path
+import shutil
 
 
-def ensure_directory(path: str | Path) -> Path:
-    directory = Path(path)
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory
+def cleanup_directory(directory: Path) -> None:
+    """
+    Permanently remove a temporary processing directory.
 
+    This function is intentionally defensive so that cleanup
+    failures do not crash the API response.
+    """
 
-def cleanup_directory(path: str | Path) -> None:
-    directory = Path(path)
+    try:
+        directory = Path(directory)
 
-    if directory.exists():
-        shutil.rmtree(directory, ignore_errors=True)
+        if directory.exists() and directory.is_dir():
+            shutil.rmtree(directory, ignore_errors=True)
 
-
-def cleanup_file(path: str | Path) -> None:
-    file_path = Path(path)
-
-    if file_path.exists() and file_path.is_file():
-        file_path.unlink(missing_ok=True)
+    except Exception:
+        # Cleanup must never break an already generated response.
+        pass
