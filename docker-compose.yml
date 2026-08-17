@@ -1,0 +1,14 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=SnapLecture API
+      - ENVIRONMENT=development
+      - FRONTEND_URL=http://localhost:3000
+    volumes:
+      - ./backend/temp:/app/temp
+    restart: unless-stopped
