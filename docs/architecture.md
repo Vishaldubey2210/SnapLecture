@@ -16,11 +16,13 @@
 
 ### 4. Resilient Network & Throttling Mitigation
 - FFmpeg flags: `-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -http_persistent 1`.
-- Up to 3 attempts per frame with exponential backoff on HTTP 403 / 429 CDN throttling.
+- Up to 3 attempts per frame with exponential backoff (`2^attempt` delay) on HTTP 403 / 429 CDN throttling.
+- Individual frame extraction failures do not abort the entire document pipeline.
 
 ### 5. High-Throughput PDF Assembly
 - `img2pdf` embeds raw JPEG byte buffers directly into PDF pages without re-encoding pixels.
 - Eliminates heavy Pillow/Canvas render passes for massive speedup.
 
 ### 6. In-Memory Stream URL Cache
-- 240-second cache for resolved `googlevideo` URLs eliminates duplicate metadata fetches.
+- 240-second TTL cache for resolved `googlevideo` URLs eliminates duplicate metadata fetches.
+- Preserves signed stream tokens across duration queries and PDF generation calls.
