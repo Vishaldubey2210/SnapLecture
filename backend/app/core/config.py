@@ -12,7 +12,8 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:3000"
 
-    # Upload / processing limits
+    # Local-upload limits. YouTube streams are processed in chunks and do not
+    # have an application duration cap.
     max_video_size_mb: int = 500
     max_video_duration_minutes: int = 120
 

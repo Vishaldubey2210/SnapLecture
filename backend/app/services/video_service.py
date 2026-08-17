@@ -1,4 +1,5 @@
 import logging
+from math import ceil
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -28,6 +29,15 @@ logger = logging.getLogger(__name__)
 STREAM_URL_CACHE_SECONDS = 240
 _stream_url_cache: dict[str, tuple[float, "YouTubeStreamInfo"]] = {}
 
+# Keep each remote read small enough to recover independently when YouTube
+# throttles a request. The number of chunks grows with the video duration;
+# only the number executing at once is bounded by local CPU/network capacity.
+STREAM_SEGMENT_SECONDS = 90
+# High parallelism can make YouTube throttle the entire client IP.  Three
+# streams provide useful concurrency while keeping request bursts modest.
+MAX_PARALLEL_STREAM_WORKERS = 3
+YTDLP_METADATA_ATTEMPTS = 3
+
 # Resolve the FFmpeg binary path once at import time.  which() performs a
 # filesystem scan; calling it inside every worker thread is wasteful.
 _FFMPEG_BIN: str | None = which("ffmpeg")
@@ -35,6 +45,49 @@ _FFMPEG_BIN: str | None = which("ffmpeg")
 
 class VideoProcessingError(Exception):
     """Raised when video processing fails."""
+
+
+def _youtube_download_error_message(error: DownloadError) -> str:
+    """Translate yt-dlp errors without mislabelling public videos as private.
+
+    ``DownloadError`` also represents local connectivity and temporary
+    YouTube throttling failures.  Treating every one as a private or
+    restricted video is misleading and prevents users from taking the right
+    next step.
+    """
+
+    details = str(error).lower()
+
+    if "private video" in details:
+        return "This YouTube video is private and cannot be processed."
+
+    if "sign in to confirm your age" in details or "age-restricted" in details:
+        return "This YouTube video is age-restricted and cannot be processed."
+
+    if "video unavailable" in details or "this video is not available" in details:
+        return "This YouTube video is unavailable. Check that the link is correct."
+
+    if "not a bot" in details or "http error 429" in details or "too many requests" in details:
+        return "YouTube temporarily rate-limited this request. Please try again shortly."
+
+    if (
+        "unable to download api page" in details
+        or "failed to establish a new connection" in details
+        or "network is unreachable" in details
+        or "socket" in details
+    ):
+        return "Unable to connect to YouTube. Check the backend network or proxy settings."
+
+    return "Unable to read this YouTube video. Please verify that it is publicly available and try again."
+
+
+def _is_youtube_rate_limited(error: DownloadError) -> bool:
+    details = str(error).lower()
+    return (
+        "not a bot" in details
+        or "http error 429" in details
+        or "too many requests" in details
+    )
 
 
 @dataclass(frozen=True)
@@ -75,14 +128,29 @@ def get_youtube_stream_info(video_url: str) -> YouTubeStreamInfo:
     }
 
     t0 = time.perf_counter()
-    try:
-        with YoutubeDL(options) as downloader:
-            info = downloader.extract_info(video_url, download=False)
-    except DownloadError as exc:
-        raise VideoProcessingError(
-            "Unable to read this YouTube video. It may be private, "
-            "unavailable, or restricted."
-        ) from exc
+    info = None
+    for attempt in range(YTDLP_METADATA_ATTEMPTS):
+        try:
+            with YoutubeDL(options) as downloader:
+                info = downloader.extract_info(video_url, download=False)
+            break
+        except DownloadError as exc:
+            is_last_attempt = attempt == YTDLP_METADATA_ATTEMPTS - 1
+            if not _is_youtube_rate_limited(exc) or is_last_attempt:
+                logger.warning("yt-dlp could not resolve %s: %s", video_url, exc)
+                raise VideoProcessingError(_youtube_download_error_message(exc)) from exc
+
+            # Back off before retrying instead of immediately adding another
+            # request to the same throttled YouTube client IP.
+            retry_delay = 2 ** (attempt + 1)
+            logger.info(
+                "YouTube rate-limited metadata request for %s; retrying in %ss (%s/%s)",
+                video_url,
+                retry_delay,
+                attempt + 1,
+                YTDLP_METADATA_ATTEMPTS,
+            )
+            time.sleep(retry_delay)
     logger.debug("yt-dlp extract_info took %.3fs", time.perf_counter() - t0)
 
     duration = info.get("duration") if info else None
@@ -111,6 +179,27 @@ def get_youtube_stream_info(video_url: str) -> YouTubeStreamInfo:
 def get_youtube_video_duration(video_url: str) -> int:
     """Read a YouTube video's duration without downloading its media."""
     return get_youtube_stream_info(video_url).duration_seconds
+
+
+def _build_stream_segments(
+    duration_seconds: int,
+    workspace: Path,
+) -> list[tuple[int, int, int, Path]]:
+    """Split a stream into fixed-size chronological chunks.
+
+    Unlike a capped segment count, this keeps increasing the number of
+    independently retryable chunks as a video's duration grows.
+    """
+
+    num_segments = max(1, ceil(duration_seconds / STREAM_SEGMENT_SECONDS))
+    segments: list[tuple[int, int, int, Path]] = []
+
+    for index in range(num_segments):
+        start = index * STREAM_SEGMENT_SECONDS
+        end = min(duration_seconds, start + STREAM_SEGMENT_SECONDS)
+        segments.append((index, start, end, workspace / f"seg_{index:03d}"))
+
+    return segments
 
 
 # ---------------------------------------------------------------------------
@@ -259,29 +348,20 @@ def process_youtube_stream_to_pdf(
     duration = stream_info.duration_seconds
     total_expected_frames = max(1, duration // interval_seconds)
 
-    # Stage 2: Dynamic segment partitioning
-    # For any video length (up to 2+ hours), dynamically partition into
-    # parallel continuous streaming segments so extraction completes in 10-15s.
-    max_workers = min(max(4, (os.cpu_count() or 4) * 2), 12)
-    if total_expected_frames <= 10 or duration <= 60:
-        num_segments = 1
-    else:
-        num_segments = min(max_workers, max(2, duration // 120))
-
-    segment_duration = max(1, duration // num_segments)
-    segments: list[tuple[int, int, int, Path]] = []
-
-    for i in range(num_segments):
-        s_start = i * segment_duration
-        s_end = duration if i == num_segments - 1 else (i + 1) * segment_duration
-        seg_dir = workspace / f"seg_{i:03d}"
-        segments.append((i, s_start, s_end, seg_dir))
+    # Stage 2: duration-based partitioning. A 3-hour video has 120 chunks;
+    # a 6-hour video has 240. Workers consume this queue in parallel instead
+    # of opening hundreds of simultaneous YouTube connections.
+    max_workers = min(
+        max(1, os.cpu_count() or 1),
+        MAX_PARALLEL_STREAM_WORKERS,
+    )
+    segments = _build_stream_segments(duration, workspace)
 
     logger.info(
         "Extracting %ds video (%d expected frames) across %d parallel segments (workers=%d)",
         duration,
         total_expected_frames,
-        num_segments,
+        len(segments),
         max_workers,
     )
 
@@ -311,7 +391,7 @@ def process_youtube_stream_to_pdf(
 
     # Assemble in exact chronological order across segments, with fallback
     all_frame_paths: list[Path] = []
-    for i in range(num_segments):
+    for i in range(len(segments)):
         frames = segment_results.get(i, [])
         # Resilient fallback: If a segment failed, fallback to timestamp seeks
         if not frames:

@@ -222,12 +222,6 @@ async def generate_pdf_from_youtube(
         # call inside process_youtube_stream_to_pdf is a near-zero cache hit.
         stream_info = get_youtube_stream_info(youtube_url)
 
-        if stream_info.duration_seconds > settings.max_video_duration_minutes * 60:
-            raise VideoTooLongError(
-                "YouTube video exceeds the maximum allowed duration "
-                f"of {settings.max_video_duration_minutes} minutes."
-            )
-
         pdf_path, frame_count, timings = process_youtube_stream_to_pdf(
             video_url=youtube_url,
             workspace=workspace,
@@ -274,11 +268,5 @@ async def get_youtube_info(youtube_url: str = Form(...)):
         duration_seconds = get_youtube_video_duration(youtube_url)
     except VideoProcessingError as exc:
         raise VideoProcessingFailedError(str(exc)) from exc
-
-    if duration_seconds > settings.max_video_duration_minutes * 60:
-        raise VideoTooLongError(
-            "YouTube video exceeds the maximum allowed duration "
-            f"of {settings.max_video_duration_minutes} minutes."
-        )
 
     return {"duration_seconds": duration_seconds}
