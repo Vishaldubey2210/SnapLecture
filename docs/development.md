@@ -39,3 +39,17 @@ Execute python unit tests from the backend directory:
 ```bash
 python -m unittest discover tests
 ```
+
+## Environment Configuration
+
+Create a `.env` file in the `backend/` directory:
+```env
+APP_NAME=SnapLecture API
+APP_VERSION=1.0.0
+ENVIRONMENT=development
+API_PREFIX=/api
+FRONTEND_URL=http://localhost:3000
+MAX_VIDEO_SIZE_MB=500
+MAX_VIDEO_DURATION_MINUTES=120
+TEMP_DIRECTORY=temp
+```
