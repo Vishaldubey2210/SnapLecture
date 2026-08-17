@@ -32,6 +32,28 @@ def generate_pdf_from_jpeg_bytes(
     return len(ordered_frames)
 
 
+def generate_pdf_from_image_paths(
+    image_paths: list[Path],
+    output_path: Path,
+) -> int:
+    """Embed ordered JPEG file paths directly without loading all into memory."""
+
+    valid_paths = [str(p) for p in image_paths if p.is_file() and p.stat().st_size > 0]
+
+    if not valid_paths:
+        raise PDFGenerationError("No valid frames found.")
+
+    try:
+        with output_path.open("wb") as output:
+            img2pdf.convert(valid_paths, outputstream=output)
+    except Exception as exc:
+        raise PDFGenerationError(
+            f"PDF generation failed: {exc}"
+        ) from exc
+
+    return len(valid_paths)
+
+
 def generate_pdf(
     frames_directory: Path,
     output_path: Path,
