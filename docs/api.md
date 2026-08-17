@@ -25,9 +25,21 @@
   - `youtube_url`: Public YouTube video link
   - `interval_seconds`: Frame interval (1-300 seconds, default: 5)
 - **Response**: Stream-extracted PDF (`SnapLecture-YouTube.pdf`)
-- **Headers**:
+- **Performance Headers**:
   - `X-SnapLecture-Ytdlp-Info-Seconds`: Metadata extraction duration
   - `X-SnapLecture-Frame-Extraction-Seconds`: Parallel frame seek duration
   - `X-SnapLecture-Pdf-Assembly-Seconds`: img2pdf conversion duration
   - `X-SnapLecture-Total-Seconds`: Total processing wall-time
   - `X-SnapLecture-Frame-Count`: Total frames embedded in PDF
+
+### Timing Breakdown Example
+```http
+HTTP/1.1 200 OK
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="SnapLecture-YouTube.pdf"
+X-SnapLecture-Ytdlp-Info-Seconds: 0.812
+X-SnapLecture-Frame-Extraction-Seconds: 4.231
+X-SnapLecture-Pdf-Assembly-Seconds: 0.124
+X-SnapLecture-Total-Seconds: 5.167
+X-SnapLecture-Frame-Count: 48
+```
