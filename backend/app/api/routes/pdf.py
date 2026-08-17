@@ -16,13 +16,19 @@ from app.core.errors import (
 )
 from app.services.video_service import (
     VideoProcessingError,
+    YouTubeStreamInfo,
+    download_youtube_video,
     get_video_duration_seconds,
+    get_youtube_stream_info,
+    get_youtube_video_duration,
     process_video_to_pdf,
+    process_youtube_stream_to_pdf,
 )
 from app.utils.cleanup import cleanup_directory
 from app.utils.validators import (
     validate_interval,
     validate_video_extension,
+    validate_youtube_url,
 )
 
 
@@ -182,3 +188,97 @@ async def generate_pdf_from_video(
         cleanup_directory(workspace)
 
         raise VideoProcessingFailedError() from exc
+
+
+@router.post("/generate-youtube")
+async def generate_pdf_from_youtube(
+    youtube_url: str = Form(...),
+    interval_seconds: int = Form(5),
+):
+    """Extract frames from a YouTube video stream and return them as a PDF.
+
+    No video file is downloaded to disk; only individual frame bytes are
+    fetched from the remote CDN stream URL.
+    """
+
+    if not validate_youtube_url(youtube_url):
+        raise InvalidVideoError("Enter a valid YouTube video link.")
+
+    try:
+        validate_interval(interval_seconds)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    workspace = Path(
+        tempfile.mkdtemp(
+            prefix="snaplecture_youtube_",
+            dir=settings.temp_directory,
+        )
+    )
+
+    try:
+        # Resolve the stream URL once — this is the only extract_info call.
+        # The result is cached for STREAM_URL_CACHE_SECONDS so the subsequent
+        # call inside process_youtube_stream_to_pdf is a near-zero cache hit.
+        stream_info = get_youtube_stream_info(youtube_url)
+
+        if stream_info.duration_seconds > settings.max_video_duration_minutes * 60:
+            raise VideoTooLongError(
+                "YouTube video exceeds the maximum allowed duration "
+                f"of {settings.max_video_duration_minutes} minutes."
+            )
+
+        pdf_path, frame_count, timings = process_youtube_stream_to_pdf(
+            video_url=youtube_url,
+            workspace=workspace,
+            interval_seconds=interval_seconds,
+            stream_info=stream_info,
+        )
+
+        if not pdf_path.exists():
+            raise VideoProcessingFailedError("PDF generation failed.")
+
+        return FileResponse(
+            path=pdf_path,
+            media_type="application/pdf",
+            filename="SnapLecture-YouTube.pdf",
+            background=BackgroundTask(cleanup_directory, workspace),
+            headers={
+                "X-SnapLecture-Ytdlp-Info-Seconds": str(timings["yt_dlp_info_seconds"]),
+                "X-SnapLecture-Frame-Extraction-Seconds": str(timings["frame_extraction_seconds"]),
+                "X-SnapLecture-Pdf-Assembly-Seconds": str(timings["pdf_assembly_seconds"]),
+                "X-SnapLecture-Total-Seconds": str(timings["total_seconds"]),
+                "X-SnapLecture-Frame-Count": str(frame_count),
+            },
+        )
+
+    except SnapLectureError:
+        cleanup_directory(workspace)
+        raise
+    except VideoProcessingError as exc:
+        cleanup_directory(workspace)
+        raise VideoProcessingFailedError(str(exc)) from exc
+    except Exception as exc:
+        cleanup_directory(workspace)
+        raise VideoProcessingFailedError() from exc
+
+
+@router.post("/youtube-info")
+async def get_youtube_info(youtube_url: str = Form(...)):
+    """Return duration metadata for a YouTube URL to estimate PDF processing."""
+
+    if not validate_youtube_url(youtube_url):
+        raise InvalidVideoError("Enter a valid YouTube video link.")
+
+    try:
+        duration_seconds = get_youtube_video_duration(youtube_url)
+    except VideoProcessingError as exc:
+        raise VideoProcessingFailedError(str(exc)) from exc
+
+    if duration_seconds > settings.max_video_duration_minutes * 60:
+        raise VideoTooLongError(
+            "YouTube video exceeds the maximum allowed duration "
+            f"of {settings.max_video_duration_minutes} minutes."
+        )
+
+    return {"duration_seconds": duration_seconds}
