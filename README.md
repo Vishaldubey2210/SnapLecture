@@ -45,17 +45,15 @@ SnapLecture aims to simplify this workflow.
 The core idea is:
 
 ```text
-Authorized Video
+Authorized Video / YouTube Stream URL
       ↓
-Frame Extraction
+Remote Input-Level Seek (No Full Download)
       ↓
-Selected Time Interval
+Parallel Frame Extraction (ThreadPoolExecutor)
       ↓
-PDF Generation
+Direct Lossless PDF Assembly (img2pdf)
       ↓
-Instant Download
-      ↓
-Temporary Data Cleanup
+Instant Download & Ephemeral Cleanup
 ```
 
 Instead of manually pausing a lecture and taking hundreds of screenshots, SnapLecture is designed to automate the process.
