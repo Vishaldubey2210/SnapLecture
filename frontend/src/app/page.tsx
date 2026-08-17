@@ -1,6 +1,15 @@
 "use client";
 
-import { ChangeEvent, useState } from "react";
+import {
+  ChangeEvent,
+  useEffect,
+  useState,
+} from "react";
+
+import {
+  initAnalytics,
+  trackEvent,
+} from "@/lib/analytics";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -14,6 +23,10 @@ export default function Home() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  useEffect(() => {
+    initAnalytics();
+  }, []);
 
   const handleVideoChange = (
     event: ChangeEvent<HTMLInputElement>,
@@ -43,7 +56,9 @@ export default function Home() {
       setError(
         "Please select a supported video file.",
       );
+
       setVideo(null);
+
       return;
     }
 
@@ -60,10 +75,15 @@ export default function Home() {
     setError("");
     setSuccess("");
 
+    trackEvent("pdf_generation_started", {
+      interval_seconds: interval,
+    });
+
     try {
       const formData = new FormData();
 
       formData.append("video", video);
+
       formData.append(
         "interval_seconds",
         String(interval),
@@ -88,7 +108,7 @@ export default function Home() {
             message = data.detail;
           }
         } catch {
-          // Ignore JSON parsing errors.
+          // Ignore malformed error responses.
         }
 
         throw new Error(message);
@@ -106,17 +126,32 @@ export default function Home() {
       anchor.download = "SnapLecture.pdf";
 
       document.body.appendChild(anchor);
+
       anchor.click();
+
       anchor.remove();
 
       window.URL.revokeObjectURL(
         downloadUrl,
       );
 
+      trackEvent(
+        "pdf_generation_completed",
+        {
+          interval_seconds: interval,
+        },
+      );
+
+      trackEvent("pdf_downloaded");
+
       setSuccess(
         "PDF generated successfully.",
       );
     } catch (err) {
+      trackEvent(
+        "pdf_generation_failed",
+      );
+
       setError(
         err instanceof Error
           ? err.message
@@ -240,7 +275,9 @@ export default function Home() {
           <button
             type="button"
             onClick={generatePDF}
-            disabled={processing || !video}
+            disabled={
+              processing || !video
+            }
             className="mt-7 w-full rounded-xl bg-indigo-500 px-6 py-4 font-semibold text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {processing
