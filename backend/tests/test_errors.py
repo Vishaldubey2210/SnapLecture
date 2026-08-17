@@ -15,7 +15,7 @@ class TestCustomErrors(unittest.TestCase):
 
     def test_video_too_long_error(self):
         err = VideoTooLongError("Exceeds max duration")
-        self.assertEqual(err.status_code, 400)
+        self.assertEqual(err.status_code, 413)
         self.assertEqual(err.error_code, "VIDEO_TOO_LONG")
 
     def test_video_too_large_error(self):
@@ -25,7 +25,7 @@ class TestCustomErrors(unittest.TestCase):
 
     def test_video_processing_failed_error(self):
         err = VideoProcessingFailedError()
-        self.assertEqual(err.status_code, 500)
+        self.assertEqual(err.status_code, 422)
         self.assertEqual(err.error_code, "VIDEO_PROCESSING_FAILED")
 
 

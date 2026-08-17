@@ -88,7 +88,14 @@ Planned intervals include:
 * 5 seconds
 * 10 seconds
 * 30 seconds
-* Custom interval
+
+## ⚡ Direct YouTube Stream Seeking (Zero Full Download)
+
+Transform public YouTube videos directly into study PDFs without downloading full media files:
+* **Input-Level Remote Seeking**: Uses `yt-dlp` stream URLs with FFmpeg HTTP range requests.
+* **Parallel Worker Threads**: Multi-threaded extraction via `ThreadPoolExecutor`.
+* **Zero-Re-encoding PDF Assembly**: `img2pdf` directly embeds raw JPEG streams for instant rendering.
+* **Resilient Throttling Mitigation**: Automatic retries with exponential backoff on CDN limits.
 
 ---
 
